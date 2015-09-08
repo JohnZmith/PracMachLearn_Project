@@ -1,0 +1,150 @@
+---
+title: "Weight Lifting Exercise" 
+output: html_document
+---
+
+In this project we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6
+participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways
+(see (http://groupware.les.inf.puc-rio.br/har) under Weight Lifting Exercise Dataset):
+
+- Class A: exactly according to the specification
+- Class B: throwing the elbows to the front 
+- Class C: lifting the dumbbell only halfway
+- Class D: lowering the dumbbell only halfway
+- Class E: throwing the hips to the front
+
+This project is aimed to train a learning machine to correctly predict and classify these tasks
+when given the activation pattern of the accelerometers.
+
+
+## Loading and preprocessing the data
+
+```{r, warning=FALSE, message=FALSE}
+library(caret); library(dplyr);
+alldata <- read.csv("pml-training.csv")
+```
+
+The following command reveals that there are 100 variables which are rarely assigned:
+
+```{r}
+notna <- t(summarise_each(data.frame(!(is.na(alldata) | alldata =="") ), funs(sum)))
+table(notna)
+```
+
+We will exclude these variables from learning. 
+Furthermore, the learning should not be made on the names of the participants or
+the timestamps of the lifting excercise. So we exclude them:
+
+```{r}
+nouseVar <- c(names(alldata)[1:7],rownames(notna)[notna<=500])
+usedVar <- which(!names(alldata) %in% nouseVar)
+gooddata <- select(alldata, usedVar)
+```
+
+So the variable `gooddata` contains all the activation pattern from the accelerometers.
+The classifier (i.e. labels `A` to `E`) is in the 53rd column: `gooddata[,53]` or just `gooddata$classe`.
+
+## Splitting in training and test data set
+
+For testing the data and be sure about the in-group-error and 
+out-of-group error we will do both cross-validation with `10` groups (see later) and
+a test on a separate data set composed of 25% of the data. So 75% of the given
+data will be used for training.
+
+```{r, warning=FALSE, message=FALSE}
+set.seed(12345)
+inTrain <- createDataPartition(gooddata$classe, p=0.75, list=FALSE)
+traindata <- gooddata[inTrain,]
+testdata <- gooddata[-inTrain,]
+```
+
+## Exploring the training data and choosing the learning method
+
+The following extract of the data indicates partially high correlation under the 
+variables. Furthermore, we see highly non-linear structures in the data and points
+from different classes clump together.
+
+```{r, warning=FALSE, message=FALSE}
+library(GGally)
+plotdata <- traindata[createDataPartition(traindata[,1], p=0.01, list=FALSE),]
+ggpairs(plotdata, columns=c(1:6,53), color = "classe", title="Feature Plot", alpha=0.4, columnLabels=rep("",7))
+```
+
+So the reducing of the features seem to take long and be difficult and 
+(general) linear models seem to be unappropriate for this classification task.
+So we need a method which is robust against correlations in the features
+and can deal with non-linear structures and still is sensitive to little changes.
+
+For that reason the classification with the random forest method seems to be
+promissing.
+
+
+## Training and testing 
+
+We will use the random forest method to train the machine.
+The accuracy is supposed to get better with a higher numer of trees.
+Since the computer resources are sparse we will limit ourselves to 20 trees.
+Moreover, to prevent the machine from overfitting, we will use cross validation.
+Since there are too many data the leave-one-out cross validation is not feasible.
+So we restrict ourselves to 10 groups cross validation.
+An estimation of error can be found below.
+
+### The actual training
+
+```{r, warning=FALSE, message=FALSE}
+control <- trainControl(method="cv", 10)
+modelFit <- train(y=traindata[,53], x=traindata[,-53], method="rf", trControl=control, ntree=20)
+print(modelFit$finalModel)
+```
+
+### The actual test
+
+```{r, warning=FALSE, message=FALSE}
+prediction <- predict(modelFit, testdata[,-53])
+confusionMatrix(testdata[,53], prediction)$table
+confusionMatrix(testdata[,53], prediction)$overall
+```
+
+So the accuracy of the learning machine on the test set is about 99% and
+we can estimate the out-of-sample-error to be around 100-99% =1%.
+If we did not do the actual test we would assume heavy overfitting with
+these values (99% is very high).
+But since we used a big test set the learning machine seems to be very accurate.
+
+## Prediction about the validation data
+
+```{r}
+validationdata <- read.csv("pml-testing.csv") 
+valdata <- select(validationdata, usedVar)
+answers<-predict(modelFit, valdata[,-53])
+answers
+```
+
+These are the labels of the 20 validation cases in the given row.
+
+## Writing the answers into files
+
+The following code is copied from coursera course page:
+
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+```
+
+Write the answers into  files:
+
+```{r}
+pml_write_files(answers)
+```
+
+
+## References
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013. 
+
+
