@@ -46,14 +46,14 @@ The classifier (i.e. labels `A` to `E`) is in the 53rd column: `gooddata[,53]` o
 
 ## Splitting in training and test data set
 
-For testing the data and be sure about the in-group-error and 
-out-of-group error we will do both cross-validation with `10` groups (see later) and
-a test on a separate data set composed of 25% of the data. So 75% of the given
-data will be used for training.
+For testing the data, be sure about the in-sample-error and 
+out-of-sample-error and for demonstration, we will do both cross-validation with 
+`10` groups (see later) and a test on a separate data set composed of 40% of the data. 
+So 60% of the given data will be used for training.
 
 ```{r, warning=FALSE, message=FALSE}
 set.seed(12345)
-inTrain <- createDataPartition(gooddata$classe, p=0.75, list=FALSE)
+inTrain <- createDataPartition(gooddata$classe, p=0.6, list=FALSE)
 traindata <- gooddata[inTrain,]
 testdata <- gooddata[-inTrain,]
 ```
@@ -76,57 +76,95 @@ So we need a method which is robust against correlations in the features
 and can deal with non-linear structures and still is sensitive to little changes.
 
 For that reason the classification with the random forest method seems to be
-promissing.
+promissing (see [http://www.stat.berkeley.edu/~breiman/RandomForests/]).
 
 
 ## Training and testing 
 
 We will use the random forest method to train the machine.
-The accuracy is supposed to get better with a higher numer of trees.
+The accuracy is supposed to get better with a higher number of (uncorrelated) trees.
 Since the computer resources are sparse we will limit ourselves to 20 trees.
-Moreover, to prevent the machine from overfitting, we will use cross validation.
-Since there are too many data the leave-one-out cross validation is not feasible.
-So we restrict ourselves to 10 groups cross validation.
-An estimation of error can be found below.
+The algorithm automatically then calculates the optimal number `mtry` used for
+variable selection at each node of the trees.
 
-### The actual training
+It is said in the literature that cross validation for random forests 
+actually is not needed to get a good out-of-sample-error approximation.
+The reason is that the data is sampled with replacement and that usually one third
+of the date is not used for building the classification trees. The remaining data
+(called "out out bag" data) is then internally used for testing the machine and
+calculating the the so called "out of bag" error (OOB). 
+And the "out-of-bag" (OOB) error is said to be a good approximation for the out-of-sample-error.
+
+Nevertheless we will use cross validation for demonstration.
+Since there is too much given data an exhaustive cross validation (e.g. "leave-one-out")
+is not feasible.
+So we restrict ourselves to 10-fold cross validation, i.e. the training data is
+sliced randomly into 10 (equally big) groups. Then the machine is run 10 times. Everytime
+it is trained on 9 of these groups and tested against the remaining one.
+This then gives an approximation for the out-of-sample-error.
+
+And actually a previous special split into test and training data is not necessary.
+But we will also do this for demonstration.
+
+### Training without cross validation
+
+First we build the random forest without cross validation:
+
+```{r, warning=FALSE, message=FALSE}
+modelFit1 <- train(y=traindata[,53], x=traindata[,-53], method="rf", ntree=20)
+print(modelFit1$finalModel)
+```
+
+### Training with 10-fold cross validation
+
+Then we compare it to the random forest with 10-fold cross validation:
 
 ```{r, warning=FALSE, message=FALSE}
 control <- trainControl(method="cv", 10)
-modelFit <- train(y=traindata[,53], x=traindata[,-53], method="rf", trControl=control, ntree=20)
-print(modelFit$finalModel)
+modelFit2 <- train(y=traindata[,53], x=traindata[,-53], method="rf", trControl=control, ntree=20)
+print(modelFit2$finalModel)
 ```
 
-### The actual test
+### Comparison with the test set
+
+The confusion matrix on the test data looks like the following on our models:
 
 ```{r, warning=FALSE, message=FALSE}
-prediction <- predict(modelFit, testdata[,-53])
-confusionMatrix(testdata[,53], prediction)$table
-confusionMatrix(testdata[,53], prediction)$overall
+prediction1 <- predict(modelFit1, testdata[,-53])
+prediction2 <- predict(modelFit2, testdata[,-53])
+cbind(confusionMatrix(testdata[,53], prediction1)$table,
+      confusionMatrix(testdata[,53], prediction2)$table)
 ```
 
-So the accuracy of the learning machine on the test set is about 99% and
-we can estimate the out-of-sample-error to be around 100-99% =1%.
+The accuracies are as follows:
+
+```{r, warning=FALSE, message=FALSE}
+cbind(confusionMatrix(testdata[,53], prediction1)$overall[1], confusionMatrix(testdata[,53], prediction2)$overall[1])
+```
+
+We see that in all cases (with or without crossvalidation) the accuracy of the 
+learning machine (on test and training set and cross validated sets) is above 98% and
+the out-of-sample-error can be estimated to be below 2% (in all cases).
 If we did not do the actual test we would assume heavy overfitting with
-these values (99% is very high).
-But since we used a big test set the learning machine seems to be very accurate.
+these values (98% is very high).
+But since we used 3 methods and a big test set the learning machine seems to be very accurate.
 
 ## Prediction about the validation data
+
+We also give the prediction of the validation data set for both models.
 
 ```{r}
 validationdata <- read.csv("pml-testing.csv") 
 valdata <- select(validationdata, usedVar)
-answers<-predict(modelFit, valdata[,-53])
-answers
+predict(modelFit1, valdata[,-53])
+predict(modelFit2, valdata[,-53])
 ```
 
 These are the labels of the 20 validation cases in the given row.
 
-## Writing the answers into files
+To write the answers into files the following code was copied from coursera's course page:
 
-The following code is copied from coursera course page:
-
-```{r}
+```{r, eval =FALSE}
 pml_write_files = function(x){
   n = length(x)
   for(i in 1:n){
@@ -138,10 +176,9 @@ pml_write_files = function(x){
 
 Write the answers into  files:
 
-```{r}
-pml_write_files(answers)
+```{r, eval=FALSE}
+pml_write_files(predict(modelFit1, valdata[,-53]))
 ```
-
 
 ## References
 
